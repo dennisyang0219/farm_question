@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="農會法與農會法施行細則全真線上模擬測驗系統。提供25題標準測驗、40題全真模擬考、單選與複選題型、詳細條文解析及歷史錯題庫自主複習。">
+  <title>農會法及施行細則 - 線上測驗與歷史錯題複習系統</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+  
+  <!-- CSS 樣式表 -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="app">
+    <!-- 全局導覽列 -->
+    <header class="navbar">
+      <div class="nav-container">
+        <div id="brandLogo" class="brand-logo">
+          <div class="brand-icon">🌾</div>
+          <div class="brand-title">農會法規測驗系統</div>
+        </div>
+
+        <nav class="nav-links">
+          <button type="button" class="nav-btn active" data-target="home">
+            🏠 <span>主頁選單</span>
+          </button>
+          <button type="button" class="nav-btn" data-target="wrong_review">
+            📖 <span>歷史錯題庫</span>
+            <span id="navWrongCount" class="counter-badge" style="display: none;">0</span>
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <!-- 主要內容動態渲染區塊 -->
+    <main id="app-content"></main>
+  </div>
+
+  <!-- 應用程式進入點 -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>
