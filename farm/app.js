@@ -28,14 +28,10 @@ let state = {
 
   // 錯題庫過濾關鍵字
   wrongSearchQuery: '',
-  wrongTypeFilter: 'all'
-};
+  wrongTypeFilter: 'all',
 
-// DOM 元素引用
-const elements = {
-  appContainer: document.getElementById('app'),
-  navBtns: document.querySelectorAll('.nav-btn'),
-  wrongCountBadge: document.getElementById('navWrongCount')
+  // 雲端同步狀態
+  isSyncing: false
 };
 
 // 初始化應用程式
@@ -48,9 +44,16 @@ function initApp() {
 function renderNavbar() {
   const wrongMap = storage.getWrongQuestions();
   const count = Object.keys(wrongMap).length;
-  if (elements.wrongCountBadge) {
-    elements.wrongCountBadge.textContent = count;
-    elements.wrongCountBadge.style.display = count > 0 ? 'inline-block' : 'none';
+  const badge = document.getElementById('navWrongCount');
+  if (badge) {
+    badge.textContent = count;
+    badge.style.display = count > 0 ? 'inline-block' : 'none';
+  }
+
+  const gasUrl = storage.getGasApiUrl();
+  const gasStatus = document.getElementById('navGasStatus');
+  if (gasStatus) {
+    gasStatus.textContent = gasUrl ? '🟢 雲端連線' : '⚙️ 綁定雲端';
   }
 }
 
@@ -105,8 +108,9 @@ function renderHomeScreen() {
   const wrongCount = Object.keys(wrongMap).length;
   const history = storage.getExamHistory();
   const totalExams = history.length;
-  const avgScore = totalExams > 0 ? Math.round(history.reduce((a, b) => a + b.score, 0) / totalExams) : 0;
-  const maxScore = totalExams > 0 ? Math.max(...history.map(h => h.score)) : 0;
+  const avgScore = totalExams > 0 ? Math.round(history.reduce((a, b) => a + (b.score || 0), 0) / totalExams) : 0;
+
+  const gasUrl = storage.getGasApiUrl();
 
   return `
     <div class="fade-in" style="max-width: 1000px; margin: 0 auto; padding: 2rem 1rem;">
@@ -114,14 +118,22 @@ function renderHomeScreen() {
       <div class="glass-card" style="padding: 2.5rem 2rem; text-align: center; margin-bottom: 2rem; position: relative; overflow: hidden;">
         <div style="position: absolute; top: -50px; right: -50px; width: 200px; height: 200px; background: rgba(16, 185, 129, 0.15); filter: blur(60px); border-radius: 50%;"></div>
         <div style="display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399; font-weight: 600; font-size: 0.85rem; padding: 0.35rem 1rem; border-radius: 999px; margin-bottom: 1rem;">
-          🌾 農會考選必備 ‧ 法規高頻題庫 (含單選與複選)
+          🌾 農會考選必備 ‧ 法規高頻大題庫 (收錄 205 全真試題)
         </div>
         <h1 style="font-size: 2.2rem; font-weight: 800; margin-bottom: 0.75rem; background: linear-gradient(135deg, #fff 0%, #cbd5e1 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
           農會法與農會法施行細則 模擬測驗系統
         </h1>
-        <p style="color: var(--text-muted); font-size: 1.05rem; max-width: 700px; margin: 0 auto;">
-          擬真考選作答介面 ‧ 精確法條條文對照 ‧ 智慧歷史錯題自動收集與複習專區
+        <p style="color: var(--text-muted); font-size: 1.05rem; max-width: 700px; margin: 0 auto 1.25rem auto;">
+          擬真考選作答介面 ‧ 精確法條條文對照 ‧ 支援 Google Sheet 雲端跨裝置同步儲存
         </p>
+
+        <!-- 雲端連線狀態指示按鈕 -->
+        <div style="display: inline-flex; align-items: center; gap: 0.6rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--card-border); padding: 0.4rem 1rem; border-radius: 12px; font-size: 0.85rem;">
+          <span>${gasUrl ? '🟢 雲端 Google 試算表已連線同步' : '⚪ 本地模式 (未綁定 Google 試算表)'}</span>
+          <button id="btnOpenGasModalHome" style="background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: var(--text-main); font-size: 0.8rem; padding: 0.2rem 0.6rem; border-radius: 6px; cursor: pointer;">
+            ${gasUrl ? '變更設定' : '⚙️ 設定 Google 試算表'}
+          </button>
+        </div>
       </div>
 
       <!-- 統計數據卡片 -->
@@ -131,7 +143,7 @@ function renderHomeScreen() {
           <div style="font-size: 2rem; font-weight: 800; color: #60a5fa;">${questionsData.length} <span style="font-size: 1rem; font-weight: 500;">題</span></div>
         </div>
         <div class="glass-card" style="padding: 1.5rem; text-align: center;">
-          <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">歷史累積錯題</div>
+          <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">累積錯題數量</div>
           <div style="font-size: 2rem; font-weight: 800; color: #f43f5e;">${wrongCount} <span style="font-size: 1rem; font-weight: 500;">題</span></div>
         </div>
         <div class="glass-card" style="padding: 1.5rem; text-align: center;">
@@ -238,35 +250,28 @@ function renderHomeScreen() {
 }
 
 function bindHomeEvents() {
-  // 選擇題數
   document.querySelectorAll('.count-opt-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const count = parseInt(e.currentTarget.getAttribute('data-count'));
-      state.config.questionCount = count;
+      state.config.questionCount = parseInt(e.currentTarget.getAttribute('data-count'));
       renderView();
     });
   });
 
-  // 選擇題型過濾
   document.querySelectorAll('.type-opt-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const type = e.currentTarget.getAttribute('data-type');
-      state.config.typeFilter = type;
+      state.config.typeFilter = e.currentTarget.getAttribute('data-type');
       renderView();
     });
   });
 
-  // 開始新測驗按鈕
   document.getElementById('btnStartNewQuiz')?.addEventListener('click', () => {
     startQuizSession(false);
   });
 
-  // 進入錯題庫
   document.getElementById('btnGoWrongReview')?.addEventListener('click', () => {
     navigateTo('wrong_review');
   });
 
-  // 開始錯題重測
   document.getElementById('btnStartWrongQuiz')?.addEventListener('click', () => {
     const wrongMap = storage.getWrongQuestions();
     if (Object.keys(wrongMap).length === 0) {
@@ -275,6 +280,8 @@ function bindHomeEvents() {
     }
     startQuizSession(true);
   });
+
+  document.getElementById('btnOpenGasModalHome')?.addEventListener('click', openGasModal);
 }
 
 /* ==========================================================================
@@ -283,13 +290,11 @@ function bindHomeEvents() {
 function startQuizSession(isWrongOnly = false) {
   let pool = [...questionsData];
 
-  // 錯題重測模式
   if (isWrongOnly) {
     const wrongMap = storage.getWrongQuestions();
     const wrongIds = Object.keys(wrongMap);
     pool = pool.filter(q => wrongIds.includes(q.id));
   } else {
-    // 依據題型篩選
     if (state.config.typeFilter === 'single') {
       pool = pool.filter(q => q.type === 'single');
     } else if (state.config.typeFilter === 'multiple') {
@@ -302,13 +307,11 @@ function startQuizSession(isWrongOnly = false) {
     return;
   }
 
-  // 隨機洗牌演算法 (Fisher-Yates Shuffle)
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
 
-  // 取指定數量題目
   const targetCount = isWrongOnly ? pool.length : Math.min(state.config.questionCount, pool.length);
   const selectedQuestions = pool.slice(0, targetCount);
 
@@ -351,7 +354,6 @@ function renderQuizScreen() {
 
   return `
     <div class="fade-in" style="max-width: 900px; margin: 0 auto; padding: 1.5rem 1rem;">
-      <!-- 作答頂部工具列 -->
       <div class="glass-card" style="padding: 1rem 1.5rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
         <div style="display: flex; align-items: center; gap: 0.75rem;">
           <span style="font-weight: 700; font-size: 1.1rem; color: #34d399;">
@@ -373,14 +375,11 @@ function renderQuizScreen() {
         </div>
       </div>
 
-      <!-- 進度條 -->
       <div style="height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 999px; margin-bottom: 1.5rem; overflow: hidden;">
         <div style="height: 100%; width: ${((currentIndex + 1) / total) * 100}%; background: linear-gradient(90deg, #10b981, #14b8a6); transition: width 0.3s ease;"></div>
       </div>
 
-      <!-- 題目與選項主要內容區域 -->
       <div class="glass-card" style="padding: 2rem; margin-bottom: 1.5rem;">
-        <!-- 題目內文 -->
         <h3 style="font-size: 1.25rem; font-weight: 700; line-height: 1.6; margin-bottom: 1.75rem; color: var(--text-main);">
           ${currentQ.question}
         </h3>
@@ -391,7 +390,6 @@ function renderQuizScreen() {
           </div>
         ` : ''}
 
-        <!-- 選項列表 -->
         <div style="display: flex; flex-direction: column; gap: 0.9rem;">
           ${currentQ.options.map(opt => {
             const isSelected = selectedKeys.includes(opt.key);
@@ -405,7 +403,6 @@ function renderQuizScreen() {
         </div>
       </div>
 
-      <!-- 底部操作列 -->
       <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
         <button id="btnPrevQ" class="btn-secondary" ${currentIndex === 0 ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : ''}>
           ⬅️ 上一題
@@ -426,7 +423,6 @@ function renderQuizScreen() {
         `}
       </div>
 
-      <!-- 答題號碼盤彈出視窗 Modal -->
       <div id="gridModal" class="modal-backdrop">
         <div class="modal-content glass-card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
@@ -463,17 +459,14 @@ function bindQuizEvents() {
   const { questions, currentIndex } = state.quiz;
   const currentQ = questions[currentIndex];
 
-  // 點擊選項
   document.querySelectorAll('.option-card').forEach(card => {
     card.addEventListener('click', (e) => {
       const key = e.currentTarget.getAttribute('data-key');
       let currentAns = state.quiz.userAnswers[currentQ.id] || [];
 
       if (currentQ.type === 'single') {
-        // 單選題
         state.quiz.userAnswers[currentQ.id] = [key];
       } else {
-        // 複選題
         if (currentAns.includes(key)) {
           currentAns = currentAns.filter(k => k !== key);
         } else {
@@ -490,13 +483,11 @@ function bindQuizEvents() {
     });
   });
 
-  // 標記題目
   document.getElementById('btnFlagQuestion')?.addEventListener('click', () => {
     state.quiz.flagged[currentQ.id] = !state.quiz.flagged[currentQ.id];
     renderView();
   });
 
-  // 上一題 / 下一題
   document.getElementById('btnPrevQ')?.addEventListener('click', () => {
     if (state.quiz.currentIndex > 0) {
       state.quiz.currentIndex--;
@@ -511,7 +502,6 @@ function bindQuizEvents() {
     }
   });
 
-  // 交卷 Modal
   const modal = document.getElementById('gridModal');
   document.getElementById('btnToggleNavGrid')?.addEventListener('click', () => {
     modal?.classList.add('active');
@@ -536,7 +526,6 @@ function bindQuizEvents() {
     submitQuizSession();
   });
 
-  // 號碼盤跳轉
   document.querySelectorAll('.grid-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const idx = parseInt(e.currentTarget.getAttribute('data-idx'));
@@ -558,7 +547,6 @@ function submitQuizSession() {
   questions.forEach(q => {
     const uAns = userAnswers[q.id] || [];
     const cAns = q.correctAnswers || [];
-    // 比對陣列是否完全相等
     const isCorrect = uAns.length === cAns.length && uAns.every(val => cAns.includes(val));
     if (isCorrect) {
       correctCount++;
@@ -570,12 +558,10 @@ function submitQuizSession() {
   const total = questions.length;
   const score = Math.round((correctCount / total) * 100);
 
-  // 將錯題寫入 LocalStorage
   if (wrongIds.length > 0) {
     storage.saveWrongQuestions(wrongIds);
   }
 
-  // 記錄歷史
   const record = storage.saveExamRecord({
     total,
     correct: correctCount,
@@ -591,7 +577,7 @@ function submitQuizSession() {
     questions,
     userAnswers,
     wrongIds,
-    filter: 'all' // 'all' | 'wrong' | 'correct'
+    filter: 'all'
   };
 
   navigateTo('result');
@@ -611,7 +597,6 @@ function renderResultScreen() {
   const sec = record.durationSec % 60;
   const isPass = score >= 60;
 
-  // 過濾問題解析列表
   let displayQuestions = questions;
   if (filter === 'wrong') {
     displayQuestions = questions.filter(q => wrongIds.includes(q.id));
@@ -621,7 +606,6 @@ function renderResultScreen() {
 
   return `
     <div class="fade-in" style="max-width: 950px; margin: 0 auto; padding: 2rem 1rem;">
-      <!-- 得分總覽卡片 -->
       <div class="glass-card" style="padding: 2.5rem; text-align: center; margin-bottom: 2rem; position: relative;">
         <div style="display: inline-block; padding: 0.35rem 1rem; border-radius: 999px; font-weight: 700; font-size: 0.85rem; margin-bottom: 1.25rem; ${isPass ? 'background:rgba(16, 185, 129, 0.2); color:#34d399; border:1px solid rgba(16,185,129,0.4);' : 'background:rgba(244, 63, 94, 0.2); color:#fda4af; border:1px solid rgba(244,63,94,0.4);'}">
           ${isPass ? '🎉 測驗合格 (達到60分基準線)' : '🔴 尚須努力 (未達60分及格線)'}
@@ -649,20 +633,17 @@ function renderResultScreen() {
           </div>
         </div>
 
-        <!-- 動作按鈕列 -->
         <div style="display: flex; justify-content: center; gap: 1rem; flex-wrap: wrap;">
           <button id="btnRetryQuiz" class="btn-primary">🔄 再次測驗一次</button>
           <button id="btnGoHomeFromRes" class="btn-secondary">🏠 返回系統首頁</button>
         </div>
       </div>
 
-      <!-- 問題解析與檢視頁籤 -->
       <div style="margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
         <h3 style="font-size: 1.4rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
           📖 題目詳細問題解析與法條對照
         </h3>
 
-        <!-- 過濾頁籤 -->
         <div style="display: flex; gap: 0.5rem; background: rgba(15, 23, 42, 0.6); padding: 0.3rem; border-radius: 12px; border: 1px solid var(--card-border);">
           <button class="res-filter-btn ${filter === 'all' ? 'active' : ''}" data-filter="all" style="padding: 0.4rem 0.9rem; border-radius: 8px; border: none; background: ${filter === 'all' ? 'var(--primary-emerald)' : 'transparent'}; color: ${filter === 'all' ? '#fff' : 'var(--text-muted)'}; font-size: 0.85rem; font-weight: 600; cursor: pointer;">
             全部題目 (${total})
@@ -676,7 +657,6 @@ function renderResultScreen() {
         </div>
       </div>
 
-      <!-- 解析清單卡片 -->
       <div style="display: flex; flex-direction: column; gap: 1.5rem;">
         ${displayQuestions.length === 0 ? `
           <div class="glass-card" style="padding: 3rem; text-align: center; color: var(--text-muted);">
@@ -706,12 +686,10 @@ function renderResultScreen() {
                 </div>
               </div>
 
-              <!-- 題目內文 -->
               <div style="font-size: 1.1rem; font-weight: 700; margin-bottom: 1.25rem; color: var(--text-main);">
                 ${q.question}
               </div>
 
-              <!-- 選項對照 -->
               <div style="display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1.25rem;">
                 ${q.options.map(opt => {
                   const isUserSel = uAns.includes(opt.key);
@@ -737,7 +715,6 @@ function renderResultScreen() {
                 }).join('')}
               </div>
 
-              <!-- 問題解析說明卡片 -->
               <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 12px; padding: 1rem 1.25rem;">
                 <div style="font-weight: 700; font-size: 0.9rem; color: #34d399; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.4rem;">
                   📜 法條條文對照與解析依據：
@@ -765,8 +742,7 @@ function bindResultEvents() {
 
   document.querySelectorAll('.res-filter-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const f = e.currentTarget.getAttribute('data-filter');
-      state.lastResult.filter = f;
+      state.lastResult.filter = e.currentTarget.getAttribute('data-filter');
       renderView();
     });
   });
@@ -780,7 +756,6 @@ function renderWrongReviewScreen() {
   const wrongIds = Object.keys(wrongMap);
   const allWrongQuestions = questionsData.filter(q => wrongIds.includes(q.id));
 
-  // 篩選
   let displayList = allWrongQuestions;
   if (state.wrongTypeFilter === 'single') {
     displayList = displayList.filter(q => q.type === 'single');
@@ -797,9 +772,10 @@ function renderWrongReviewScreen() {
     );
   }
 
+  const gasUrl = storage.getGasApiUrl();
+
   return `
     <div class="fade-in" style="max-width: 1000px; margin: 0 auto; padding: 2rem 1rem;">
-      <!-- 頂部標題牆 -->
       <div class="glass-card" style="padding: 2rem; margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
         <div>
           <h2 style="font-size: 1.8rem; font-weight: 800; display: flex; align-items: center; gap: 0.6rem;">
@@ -811,6 +787,11 @@ function renderWrongReviewScreen() {
         </div>
 
         <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+          ${gasUrl ? `
+            <button id="btnSyncCloudWrong" class="btn-secondary" style="border-color: var(--primary-emerald); color: #34d399;">
+              ☁️ ${state.isSyncing ? '同步中...' : '從雲端試算表拉取同步'}
+            </button>
+          ` : ''}
           <button id="btnStartWrongQuiz2" class="btn-primary" style="background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);" ${allWrongQuestions.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
             ⚡ 歷史錯題隨機重測
           </button>
@@ -820,16 +801,13 @@ function renderWrongReviewScreen() {
         </div>
       </div>
 
-      <!-- 搜尋與篩選工具列 -->
       <div class="glass-card" style="padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-        <!-- 關鍵字搜尋輸入框 -->
         <div style="position: relative; flex: 1; min-width: 250px;">
           <input type="text" id="wrongSearchInput" value="${state.wrongSearchQuery}" placeholder="搜尋關鍵字或法條條文（如：主管機關、聘任）..." 
             style="width: 100%; padding: 0.7rem 1rem 0.7rem 2.5rem; border-radius: 10px; border: 1px solid var(--card-border); background: rgba(15, 23, 42, 0.6); color: var(--text-main); font-size: 0.95rem; outline: none;">
           <span style="position: absolute; left: 0.9rem; top: 50%; transform: translateY(-50%); color: var(--text-muted);">🔍</span>
         </div>
 
-        <!-- 題型篩選按鈕列 -->
         <div style="display: flex; gap: 0.5rem;">
           <button class="wrong-type-btn ${state.wrongTypeFilter === 'all' ? 'active' : ''}" data-type="all" style="padding: 0.5rem 0.9rem; border-radius: 8px; border: 1px solid var(--card-border); background: ${state.wrongTypeFilter === 'all' ? 'rgba(16, 185, 129, 0.2)' : 'transparent'}; color: ${state.wrongTypeFilter === 'all' ? '#34d399' : 'var(--text-muted)'}; cursor: pointer; font-size: 0.85rem;">
             全部題型
@@ -843,7 +821,6 @@ function renderWrongReviewScreen() {
         </div>
       </div>
 
-      <!-- 錯題清單列表 -->
       <div style="display: flex; flex-direction: column; gap: 1.25rem;">
         ${displayList.length === 0 ? `
           <div class="glass-card" style="padding: 4rem 2rem; text-align: center;">
@@ -862,7 +839,7 @@ function renderWrongReviewScreen() {
                   </span>
                   <span class="chapter-tag">${q.chapter} ‧ ${q.article}</span>
                   <span style="background: rgba(244, 63, 94, 0.15); border: 1px solid rgba(244, 63, 94, 0.3); color: #fda4af; font-size: 0.75rem; padding: 0.15rem 0.6rem; border-radius: 6px; font-weight: 600;">
-                    歷史累積錯題 ${wInfo.wrongCount || 1} 次
+                    累積錯題 ${wInfo.wrongCount || 1} 次
                   </span>
                 </div>
 
@@ -871,12 +848,10 @@ function renderWrongReviewScreen() {
                 </button>
               </div>
 
-              <!-- 題目內容 -->
               <h4 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; color: var(--text-main);">
                 ${idx + 1}. ${q.question}
               </h4>
 
-              <!-- 正確答案與選項 -->
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem; margin-bottom: 1.25rem;">
                 ${q.options.map(opt => {
                   const isCorrect = q.correctAnswers.includes(opt.key);
@@ -888,7 +863,6 @@ function renderWrongReviewScreen() {
                 }).join('')}
               </div>
 
-              <!-- 條文對照與解析 -->
               <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 10px; padding: 0.9rem 1.1rem; font-size: 0.9rem; color: #cbd5e1; line-height: 1.6;">
                 <strong style="color: #34d399;">📜 問題解析：</strong> ${q.explanation}
               </div>
@@ -901,12 +875,10 @@ function renderWrongReviewScreen() {
 }
 
 function bindWrongReviewEvents() {
-  // 重測按鈕
   document.getElementById('btnStartWrongQuiz2')?.addEventListener('click', () => {
     startQuizSession(true);
   });
 
-  // 清空錯題
   document.getElementById('btnClearAllWrong')?.addEventListener('click', () => {
     if (confirm('確定要清空所有歷史錯題紀錄嗎？此動作無法復原！')) {
       storage.clearAllWrongQuestions();
@@ -915,13 +887,25 @@ function bindWrongReviewEvents() {
     }
   });
 
-  // 搜尋
+  document.getElementById('btnSyncCloudWrong')?.addEventListener('click', async () => {
+    state.isSyncing = true;
+    renderView();
+    const res = await storage.fetchCloudData();
+    state.isSyncing = false;
+    renderNavbar();
+    renderView();
+    if (res.success) {
+      alert(`雲端同步成功！目前共有 ${res.count} 題錯題。`);
+    } else {
+      alert(`同步失敗：${res.message}`);
+    }
+  });
+
   const searchInput = document.getElementById('wrongSearchInput');
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
       state.wrongSearchQuery = e.target.value;
       renderView();
-      // 保留 input focus 狀態
       const inputAfter = document.getElementById('wrongSearchInput');
       if (inputAfter) {
         inputAfter.focus();
@@ -930,7 +914,6 @@ function bindWrongReviewEvents() {
     });
   }
 
-  // 題型過濾按鈕
   document.querySelectorAll('.wrong-type-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       state.wrongTypeFilter = e.currentTarget.getAttribute('data-type');
@@ -938,7 +921,6 @@ function bindWrongReviewEvents() {
     });
   });
 
-  // 移除個別錯題
   document.querySelectorAll('.btn-remove-wrong').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const qid = e.currentTarget.getAttribute('data-qid');
@@ -949,7 +931,27 @@ function bindWrongReviewEvents() {
   });
 }
 
-// 綁定頂部導覽列點擊
+// Google Apps Script 設定彈出視窗
+function openGasModal() {
+  const currentUrl = storage.getGasApiUrl();
+  const inputUrl = prompt(
+    '請輸入您部署的 Google Apps Script 網頁應用程式 URL（Web App URL）：\n\n(留空將恢復為純本地儲存模式)',
+    currentUrl
+  );
+
+  if (inputUrl !== null) {
+    storage.setGasApiUrl(inputUrl);
+    renderNavbar();
+    renderView();
+    if (inputUrl.trim()) {
+      alert('已成功綁定 Google Apps Script 雲端網址！作答紀錄與錯題將自動同步至您的 Google 試算表。');
+    } else {
+      alert('已恢復為純本地儲存模式。');
+    }
+  }
+}
+
+// 導覽列與對話框事件
 document.querySelectorAll('.nav-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
     const targetView = e.currentTarget.getAttribute('data-target');
@@ -961,6 +963,7 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
   });
 });
 
+document.getElementById('navGasStatus')?.addEventListener('click', openGasModal);
 document.getElementById('brandLogo')?.addEventListener('click', () => {
   navigateTo('home');
 });
